@@ -4,6 +4,10 @@
 #include <string.h>
 #include <dirent.h>
 #include <semaphore.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <time.h>
 
 #include "helper.h"
 #include "global.h"
@@ -15,7 +19,6 @@
         printf(" -> P%2d", pos->id); \
     printf("\n"); \
 }
-
 
 // 계산된 CPU 사용량과 메모리 사용량을 저장하기 위한 전역 변수
 static double cpu_usage = 0.0;
@@ -92,24 +95,31 @@ double calculate_memory_usage() {
     return used_memory * 100;
 }
 
-void print_proc_info(int pid) {
-    char path[40], line[256], state;
+// 프로세스 정보를 출력하는 함수
+void print_proc_info(struct task *task) {
+    char path[40], state;
     long virtualMem;
-    sprintf(path, "/proc/%d/stat", pid);
+    sprintf(path, "/proc/%d/stat", task->pid);
 
     FILE *fp = fopen(path, "r");
     if (fp == NULL) {
         perror("Error opening process stat file");
         return;
     }
-    // /proc/[pid]/stat 파일에서 상태(state)와 가상 메모리 크기(VmSize)를 읽습니다.
-    // 이 예에서는 필드 3(state)과 필드 23(vsize)를 읽습니다.
     if (fscanf(fp, "%*d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %*lu %*lu %*ld %*ld %*ld %*ld %*ld %*ld %*llu %ld", &state, &virtualMem) != 2) {
         perror("Error reading process stat file");
     } else {
-        printf(" - PID: %d, State: %c, VmSize: %ld KB\n", pid, state, virtualMem / 1024);
+        printf(" - PID: %d, State: %c, VmSize: %ld KB, Wait Time: %d \n", task->pid, state, virtualMem / 1024, task->time_wait);
     }
     fclose(fp);
+}
+
+// 대기 중인 프로세스들의 대기 시간을 증가시키는 함수
+void update_wait_times() {
+    struct task *p;
+    list_for_each_entry(p, &(ptable->rq), list) {
+        p->time_wait += 1; // 대기 중인 모든 프로세스의 대기 시간을 1초 증가
+    }
 }
 
 // CPU, 메모리 사용량 보여주는 함수
@@ -118,7 +128,7 @@ void stat_hdlr() {
     mem_usage = calculate_memory_usage();
     struct task *p;
 
-    system_d("clear");
+    system("clear");
     printf("CPU : [");
     int bar_width = get_cols() - 15;
     int cpu_pos = bar_width * (cpu_usage / 100.0);
@@ -138,13 +148,17 @@ void stat_hdlr() {
     printf("] %.2f%%\n", mem_usage);
 
     sem_wait(ptable_sem);
+
+    // 대기 중인 프로세스들의 대기 시간을 업데이트
+    update_wait_times();
+
     PRINT_RQ("[RQ]", p, &(ptable->rq), list);
     list_for_each_entry(p, &(ptable->rq), list) {
-        print_proc_info(p->pid); // 각 프로세스의 정보를 출력
+        print_proc_info(p); // 각 프로세스의 정보를 출력
     }
     PRINT_RQ("[END]", p, &(ptable->rq_done), list_done);
     list_for_each_entry(p, &(ptable->rq_done), list_done) {
-        print_proc_info(p->pid); // 각 프로세스의 정보를 출력
+        print_proc_info(p); // 각 프로세스의 정보를 출력
     }
 
     sem_post(ptable_sem);
