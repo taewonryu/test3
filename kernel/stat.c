@@ -109,7 +109,7 @@ void print_proc_info(struct task *task) {
     if (fscanf(fp, "%*d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %*lu %*lu %*ld %*ld %*ld %*ld %*ld %*ld %*llu %ld", &state, &virtualMem) != 2) {
         perror("Error reading process stat file");
     } else {
-        printf(" - PID: %d, State: %c, VmSize: %ld KB, Wait Time: %d \n", task->pid, state, virtualMem / 1024, task->time_wait);
+        printf(" - PID: %d, State: %c, VmSize: %ld KB, Wait Time: %d s\n", task->pid, state, virtualMem / 1024, task->time_wait);
     }
     fclose(fp);
 }
@@ -118,7 +118,9 @@ void print_proc_info(struct task *task) {
 void update_wait_times() {
     struct task *p;
     list_for_each_entry(p, &(ptable->rq), list) {
-        p->time_wait += 1; // 대기 중인 모든 프로세스의 대기 시간을 1초 증가
+        if (p->state != TASK_RUNNING) { // TASK_RUNNING 상태가 아닌 경우에만 증가
+            p->time_wait += 1; // 대기 중인 모든 프로세스의 대기 시간을 1초 증가
+        }
     }
 }
 
@@ -173,3 +175,4 @@ void os_status(struct os_args *args) {
         sleep(1);
     }
 }
+
